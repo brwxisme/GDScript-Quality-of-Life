@@ -140,14 +140,19 @@ var settings: Dictionary = {
 
 ## This is the current window code that is being edited.[br]
 ## It is updated every time you change the focused tab you are working on.
-var current_code: CodeEdit
+var current_code : CodeEdit
 var current_script: Script ## The script that is currently being edited.
 var editor_setting: EditorSettings ## Used to access the settings at [code]Editor -> Editor Settings -> GDScript QoL[/code]
 var last_line: LastLineChanged ## All the last line info are stored at a custom class [GDScriptQualityOfLife.LastLineChanged]
 var is_shortcut_pressed: bool = false ## If a shortcut is pressed, this bool is triggered until it finishes it's job, or else things might break with [method check_paste] logic.
 var updated_by_code: bool = false ## If the code was changed by code and not by user, this will return [code]true[/code] and avoid the code to continue running.
 #endregion
-
+var codeEditorFound : bool = false
+var isPluginActive : bool = false
+var codeEditorList : Array
+var tabContainer :TabContainer
+var currentIndex = null
+var autofind = true
 
 #region Setup
 func _enter_tree() -> void:
@@ -155,6 +160,16 @@ func _enter_tree() -> void:
 	set_editor_settings()
 	get_editor_code_edit(get_viewport().gui_get_focus_owner()) # Get editor on focus right now
 	get_viewport().gui_focus_changed.connect(get_editor_code_edit) # Get editor when change focus
+	print(get_tree())
+	print(get_tree_string())
+	print("--------------")
+	
+	
+	
+	#for i in get_window().get_children():
+		#print(i.get_tree_string())
+	print(get_tree().get_root())
+	#get_tree().get_root().focus_entered.connect(_codeEditorFocused)
 
 
 func _exit_tree() -> void:
@@ -228,18 +243,57 @@ func remove_editor_settings() -> void:
 ## check if it is a GDScript code editor (ignores Shader code editor window) to save it in [member current_code].
 ## [br]It also saves the current script that is being edited in [member current_script].
 func get_editor_code_edit(node: Node) -> void:
-	if current_code: # Disconnect last editor
-		current_code.lines_edited_from.disconnect(self.changed_line)
-		current_code = null
+	if node is CodeEdit && node.get_parent().get_class() == "CodeTextEditor" && !codeEditorList.has(node):
+		#print(node)
+#Executed once, needs to be docked before use
+		if !tabContainer:
+			tabContainer = node.get_parent().get_parent().get_parent().get_parent()
+			tabContainer.tab_changed.connect(func(selectedIdx):
+				#print(tabContainer.get_tab_control(selectedIdx).get_children())
+				if tabContainer.get_tab_control(selectedIdx).get_child(0) is VSplitContainer:
+					print("Is Script Editor Tab")
+					get_editor_code_edit(tabContainer.get_tab_control(selectedIdx).get_child(0).get_child(0).get_child(0))
+				)
+#Register New Code Editor
+		codeEditorList.append(node)
+		var myIndex = codeEditorList.size()-1
+#Assign Code edit as current CodeEdit when focus entered
+		node.focus_entered.connect(func():
+			#if !node.has_focus():
+			#print(node.has_focus())
+			_activateThisPlugin(true,myIndex))
+		
+		node.focus_exited.connect(func():
+			_activateThisPlugin(false,myIndex))
+		node.lines_edited_from.connect(_checkPluginAndContinue)
+		#print("Code Editor Has Been Found !")
+		#print(node.get_parent().get_class())
+		
+		#print(codeEditorList)
+		
+		node.lines_edited_from.connect(self.changed_line)
+		#codeEditorFound = true
+		
+		
+	#else:
+		print("current Node Name is : ", node)
+		#print("myParent ",node.get_parent().get_root())
 	
+#FROM BRWXISME : no need to Disconnect since its only activate when codeeditor is found and focused
+	#if current_code: # Disconnect last editor
+		#current_code.lines_edited_from.disconnect(self.changed_line)
+		#current_code = null
+		#pass
+	
+
 	# If the focused window is not a code editor for gdscript (ignore shader editor), return
 	if not node is CodeEdit or not node.get_parent().get_class() == "CodeTextEditor": 
 		updated_by_code = true # Ignore any code added while code editor not focused (like signals from Node tab)
 		return
 	
 	set_deferred("updated_by_code", false) # When editor is focused back, listen to it again
-	current_code = node # Get new editor
-	current_code.lines_edited_from.connect(self.changed_line)
+	#current_code = node # Get new editor
+	#current_code.lines_edited_from.connect(self.changed_line)
 	
 	# Get current script
 	current_script = EditorInterface.get_script_editor().get_current_script()
@@ -248,6 +302,8 @@ func get_editor_code_edit(node: Node) -> void:
 ## Called when [member current_code] emit [signal TextEdit.lines_edited_from]
 ## [br]If line is added or removed, proceed to code checks.
 func changed_line(_from_line: int, _to_line: int) -> void:
+	if !is_instance_valid(current_code):return
+	
 	if updated_by_code: # If new line was added by this same code, skip checkings
 		set_deferred("updated_by_code",  false)
 		return
@@ -1222,3 +1278,29 @@ class LastLineChanged:
 		var indent_size: int = current_code.indent_size
 		var indent_quant: int = current_code.get_indent_level(line)
 		indent += "\t".repeat(indent_quant/indent_size)
+
+func _activateThisPlugin(val,myIndex):
+	print("Current Index : ",currentIndex)
+	if val && currentIndex == myIndex : return
+	
+	currentIndex = myIndex
+	print("focus enter ",val)
+	isPluginActive = val
+	if val:
+		current_code = codeEditorList[myIndex]
+		
+		#print(current_code.get_tree())
+		#print(current_code.get_tree().get_root())
+		#print(current_code.get_tree_string_pretty())
+		#print("myParent Name is : ",current_code.get_parent().get_parent().get_parent().get_parent())
+		#print(current_code.get_parent().get_parent().get_parent())
+		#print(current_code.get_parent().get_parent())
+
+func _checkPluginAndContinue(fl:int,tl:int):
+	if !isPluginActive:return
+	self.changed_line(fl,tl)
+	
+	pass
+
+func _codeEditorFocused():
+	print("CODE EDITOR FOCUSED YAY !!!!!")
